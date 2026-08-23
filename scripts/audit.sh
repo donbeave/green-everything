@@ -258,8 +258,37 @@ classify_repo() {
   echo "$verdict|${details% }"
 }
 
+# --- Goal 2: Velnor-lane evidence at a commit ---------------------------------
+# Echo newline-separated workflow names that have a successful run on a
+# velnor-lane runner for the given commit SHA (workflow_dispatch lanes=velnor /
+# lanes=both, or pull_request lane runs on the same SHA). Fleet policy
+# merged_push_occupancy routes post-merge push to the GitHub lane, so the
+# default-branch push run itself can never prove Velnor; a dispatch/PR run on
+# the same HEAD commit can (identical workflow definition).
+velnor_evidence() {
+  local repo="$1" sha="$2"
+  local runs
+  runs=$(gh api "repos/$repo/actions/runs?head_sha=$sha&per_page=100" \
+    --jq '[.workflow_runs[] | select(.status == "completed" and .conclusion == "success")
+          | {id, name, created_at}]
+          | sort_by(.created_at) | reverse' 2>/dev/null)
+  [[ -z "$runs" || "$runs" == "[]" ]] && return 0
+
+  local proven="" id name labels
+  while IFS=$'\t' read -r id name; do
+    [[ -z "${id// }" ]] && continue
+    grep -qxF -- "$name" <<<"$proven" && continue   # already proven: skip job lookups
+    labels=$(gh api "repos/$repo/actions/runs/$id/jobs?per_page=100" \
+      --jq '[.jobs[] | select(.conclusion == "success") | .labels[]] | unique | join(" ")' 2>/dev/null)
+    is_velnor "$labels" && proven+="$name"$'\n'
+  done < <(jq -r '.[] | "\(.id)\t\(.name)"' <<<"$runs")
+  printf '%s' "$proven"
+}
+
 # --- Goal 2: main-branch CI status -------------------------------------------
 # echoes "STATUS|labels|failed-workflow-names"
+# STATUS: GREEN (all default-branch workflows green AND velnor proof at HEAD) /
+# NO_VELNOR_PROOF:names / RED / RUNNING / NO_RUNS.
 main_ci() {
   local repo="$1" branch="$2"
   local latest
@@ -290,6 +319,24 @@ main_ci() {
     elif is_ghhosted "$all" && ! is_velnor "$all"; then labels="github: $all"
     else labels="mixed: $all"; fi
     labels="${labels:0:80}"
+  fi
+
+  # Velnor proof: push routes to the GitHub lane by fleet policy, so green
+  # default-branch runs alone don't prove Velnor. Every workflow with
+  # default-branch runs must also have a successful velnor-lane run on the
+  # current default-branch HEAD SHA.
+  if [[ "$st" == "GREEN" ]]; then
+    local head_sha proven missing="" n
+    head_sha=$(gh api "repos/$repo/commits/$branch" --jq '.sha' 2>/dev/null)
+    if [[ -n "$head_sha" && "$head_sha" != "null" ]]; then
+      proven=$(velnor_evidence "$repo" "$head_sha")
+      while IFS= read -r n; do
+        [[ -z "$n" ]] && continue
+        grep -qxF -- "$n" <<<"$proven" || missing+="$n, "
+      done < <(jq -r '.[].name' <<<"$latest")
+      missing="${missing%, }"
+      [[ -n "$missing" ]] && st="NO_VELNOR_PROOF:$missing"
+    fi
   fi
   echo "$st|$labels|${failed:--}"
 }
@@ -357,16 +404,17 @@ for repo in "${repos[@]}"; do
   if [[ $MODE_CI == 1 ]]; then
     IFS='|' read -r st lcell _failed <<<"$(main_ci "$repo" "$branch")"
     case "$st" in
-      GREEN)   mcell="✅ GREEN" ;;
-      RED)     mcell="❌ RED ($_failed)" ;;
-      RUNNING) mcell="🟡 RUNNING" ;;
-      NO_RUNS) mcell="⬜ NO_RUNS" ;;
-      *)       mcell="⚠️ $st" ;;
+      GREEN)             mcell="✅ GREEN" ;;
+      NO_VELNOR_PROOF:*) mcell="🟡 NO_VELNOR_PROOF (${st#NO_VELNOR_PROOF:})" ;;
+      RED)               mcell="❌ RED ($_failed)" ;;
+      RUNNING)           mcell="🟡 RUNNING" ;;
+      NO_RUNS)           mcell="⬜ NO_RUNS" ;;
+      *)                 mcell="⚠️ $st" ;;
     esac
     [[ "$lcell" == "-" && $LABELS == 0 ]] && lcell="(skipped)"
     pcell="$(pr_status "$repo")"
 
-    if [[ "$st" == "GREEN" && ( $LABELS == 0 || "$lcell" == velnor* ) ]]; then g2=$((g2+1)); fi
+    if [[ "$st" == "GREEN" ]]; then g2=$((g2+1)); fi
     if [[ "$pcell" == "-" || "$pcell" == *"all green"* ]]; then pr_ok=$((pr_ok+1)); fi
   fi
 
