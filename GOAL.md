@@ -25,7 +25,19 @@ For every repository in `scripts/repos.txt`:
      - `gh api orgs/{org}/actions/runners` (org-level fleet)
      - `gh api repos/{owner}/{repo}/actions/runners` (repo-level runners)
    - Velnor lanes use self-hosted labels, e.g. `runs-on: [self-hosted, velnor-target-mvp]`; schemes vary per org/fleet.
-2. GitHub-hosted runners (`ubuntu-latest`, `macos-*`, `windows-*`) must NEVER be what runs by default on `push` / `pull_request`. Every repo with CI must keep a non-default GitHub-hosted escape hatch (e.g. a `workflow_dispatch` input selecting the fallback lane) — it is required for the parity verification in Objective 3.
+2. GitHub-hosted runners (`ubuntu-latest`, `macos-*`, `windows-*`) must NEVER be what runs by default on `push` / `pull_request`. Every repo with CI must keep a non-default GitHub-hosted escape hatch — it is required for the parity verification in Objective 3. The escape hatch MUST use exactly this `workflow_dispatch` input in every workflow:
+
+   ```yaml
+     workflow_dispatch:
+       inputs:
+         lanes:
+           description: velnor (default) | github | both
+           type: choice
+           default: velnor
+           options: [velnor, github, both]
+   ```
+
+   `both` runs both fleets from the same definition.
 3. Matrix or expression-based `runs-on: ${{ ... }}`: review manually and convert so the default resolves to Velnor.
 4. Repos already fully on Velnor need no PR — verify via the audit and move on.
 5. Pre-existing open PRs in these repos: rebase onto the fixed CI, merge when green.
