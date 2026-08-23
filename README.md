@@ -9,8 +9,9 @@ non-default fallback only.
 
 | File | Purpose |
 |------|---------|
-| `START.md` | Full goal prompt — paste into `/goal` to start |
-| `RESUME.md` | Resume prompt — paste into `/goal` after interruption |
+| `GOAL.md` | The goal itself — objectives, hard rules, operating procedure, done criteria |
+| `START.md` | Fresh-run prompt (imports `@GOAL.md`) — paste into `/goal` to start |
+| `RESUME.md` | Resume prompt (imports `@GOAL.md`) — paste into `/goal` after interruption |
 | `PLAN.md` | Phased execution plan |
 | `TRACKER.md` | Auto-generated progress table (do not hand-edit) |
 | `scripts/repos.txt` | The 36 target repositories |
@@ -29,8 +30,9 @@ Requires: `gh` (authenticated, access to all three orgs), `jq`.
 
 ## Start / resume
 
-`START.md` and `RESUME.md` contain only the prompt text — nothing else. Paste the entire
-file contents into `/goal`:
+`START.md` and `RESUME.md` contain only the prompt text — nothing else. Both import the
+shared goal definition via `@GOAL.md`, so paste them from a session running in this
+directory (the `@GOAL.md` reference resolves relative to it):
 
 - Start: paste all of `START.md`.
 - Resume after interruption: paste all of `RESUME.md`.
