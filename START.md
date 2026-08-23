@@ -50,7 +50,7 @@ Validate with `scripts/audit.sh`: every repo row shows main `✅ GREEN` running 
 
 1. Run `scripts/audit.sh` to refresh `TRACKER.md` from live GitHub state. Trust it over memory.
 2. Pick the next batch of repos in `TRACKER.md` not fully ✅.
-3. Dispatch one subagent per repo — always subagents, never do repo work in the main loop; keep the main context window lean. Each subagent: audits the repo's workflows, clones, converts `runs-on` to the Velnor labels, opens a PR, watches checks, iterates until green, merges without admin override (`gh pr merge --squash` or `--auto --squash`), and returns only a short report (PR links, final status, follow-ups). Run independent repos in parallel subagents.
+3. Dispatch one subagent per repo — always subagents, never do repo work in the main loop; keep the main context window lean. Each subagent: clones the repo into `/Users/donbeave/Projects/tailrocks/velnor-project/test/green-everything/repositories` (or reuses the existing clone there), audits the workflows, converts `runs-on` to the Velnor labels on a branch, opens a PR, watches checks, iterates until green, merges without admin override (`gh pr merge --squash` or `--auto --squash`), and returns only a short report (PR links, final status, follow-ups). Subagents are always authorized to create and merge PRs to accomplish their task. Run independent repos in parallel subagents.
 4. Re-run `scripts/audit.sh`; confirm the tracker rows flip.
 5. Repeat until all 36 repos satisfy Goal 1 and Goal 2.
 
