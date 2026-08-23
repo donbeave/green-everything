@@ -11,7 +11,7 @@ This is a resumption of the goal fully defined in `START.md` (same directory). R
 Resume procedure:
 
 1. Run `scripts/audit.sh` to regenerate `TRACKER.md` from live GitHub state. Trust the tracker over any prior memory or summary.
-2. Close out in-flight PRs first: for each repo with open PRs (`gh pr list -R owner/repo`), check status, rebase/fix if needed, merge when green — no admin override.
+2. Close out in-flight PRs first: dispatch a subagent per repo with open PRs (`gh pr list -R owner/repo`) to check status, rebase/fix if needed, merge when green — no admin override.
 3. Continue the `START.md` working loop from the first repo in `TRACKER.md` not fully ✅.
 4. Re-run `scripts/audit.sh` after each merge.
 
