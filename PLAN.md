@@ -17,7 +17,7 @@ Execution plan backing `START.md`. The `/goal` agent follows the `START.md` work
 Repo-by-repo, in tracker order:
 
 1. Audit `.github/workflows/*` on the default branch.
-2. Convert `runs-on` to Velnor labels; keep GitHub-hosted lanes only as non-default escape hatches (`workflow_dispatch` input), if desired at all.
+2. Convert `runs-on` to Velnor labels; keep/add the GitHub-hosted escape hatch (`workflow_dispatch` input) — required for parity verification in Phase 4.
 3. PR per repo; green checks; merge without admin override.
 4. Repos with no CI: justify the `NO_CI` status in the final report. (Decide per repo whether CI should be added — if the repo ships code, propose minimal Velnor CI in a PR.)
 
@@ -36,8 +36,18 @@ Suggested batches (similar CI shapes convert faster together):
 - Fix root causes; escalate environment gaps into the `velnor` repo itself if the runner image/tooling is the cause.
 - Triage and land open PRs: rebase onto fixed CI, merge when green.
 
-## Phase 4 — Final validation
+## Phase 4 — Goal 3: config parity, green on both fleets
+
+Per repo with CI:
+
+1. Diff the lanes: Velnor and GitHub-hosted must run identical steps/toolchain/tests — only the `runs-on` label differs. Remove any runner-keyed `if:` conditions, Velnor-only setup, or skipped/weakened tests.
+2. Trigger the GitHub-hosted fallback lane via `workflow_dispatch`; confirm green.
+3. Divergences are environment gaps — fix them in the Velnor runner image/fleet (escalate into the `velnor` repo), never in the workflow.
+4. Record both run links (Velnor default + fallback dispatch) per repo for the final report.
+
+## Phase 5 — Final validation
 
 - Full `scripts/audit.sh` run: all rows ✅.
-- Final report covers: exceptions, fallback incidents, remaining follow-ups.
+- Parity evidence: fallback-lane dispatch run green per repo, identical configuration.
+- Final report covers: exceptions, fallback-lane run links, fallback incidents, remaining follow-ups.
 - Spot-check merge compliance: recent merges done without admin override (PR pages show checks passed before merge).

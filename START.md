@@ -25,7 +25,7 @@ For every repository in `scripts/repos.txt`:
      - `gh api orgs/{org}/actions/runners` (org-level fleet)
      - `gh api repos/{owner}/{repo}/actions/runners` (repo-level runners)
    - Velnor lanes use self-hosted labels, e.g. `runs-on: [self-hosted, velnor-target-mvp]`; schemes vary per org/fleet.
-2. GitHub-hosted runners (`ubuntu-latest`, `macos-*`, `windows-*`) may exist ONLY as an optional, non-default escape hatch (e.g. a `workflow_dispatch` input selecting a fallback lane). They must never be what runs by default on `push` / `pull_request`.
+2. GitHub-hosted runners (`ubuntu-latest`, `macos-*`, `windows-*`) must NEVER be what runs by default on `push` / `pull_request`. Every repo with CI must keep a non-default GitHub-hosted escape hatch (e.g. a `workflow_dispatch` input selecting the fallback lane) — it is required for the parity verification in Objective 3.
 3. Matrix or expression-based `runs-on: ${{ ... }}`: review manually and convert so the default resolves to Velnor.
 4. Repos already fully on Velnor need no PR — verify via the audit and move on.
 5. Pre-existing open PRs in these repos: rebase onto the fixed CI, merge when green.
@@ -42,10 +42,19 @@ For every repository:
 
 Validate with `scripts/audit.sh`: every repo row shows main `✅ GREEN` running on `velnor`, and PRs all green.
 
+## Objective 3 — identical configuration, green on both fleets
+
+The workflow configuration must be runner-agnostic. Velnor and GitHub-hosted lanes run the SAME steps, toolchain versions, and tests — the only permitted difference is the `runs-on` label selection.
+
+1. No Velnor-specific hacks: no `if:` conditions keyed on runner name/labels/environment, no Velnor-only setup steps, no skipped or weakened tests on either lane.
+2. Environment gaps (missing tooling, version mismatches, Docker, network egress) are fixed in the Velnor runner image/fleet — never worked around in the workflow. Escalate fleet fixes into the `velnor` repo itself.
+3. Prove parity per repo: trigger the GitHub-hosted fallback lane (`gh workflow run ... -f ...` on the dispatch escape hatch) AND the Velnor default lane — both must go green from the same workflow definition. Record the dispatch run links in the per-repo report.
+
 ## Hard rules — never violate
 
 - **Never use admin privileges to merge.** No `gh pr merge --admin`, no bypassing branch protection, no merging over red checks. If a required check blocks a merge, fix the check. Updating branch protection's *required check list* to match renamed workflows is allowed; weakening or disabling protection to force a merge is not.
 - **Velnor is always the default.** GitHub-hosted runners may be used only as a temporary fallback when the Velnor fleet is down (e.g. to land an urgent fix). Any such use must be reverted afterwards and called out in your final report.
+- **No runner-specific configuration.** Both fleets execute identical workflow configuration; only the `runs-on` label differs. Fix the fleet, never the workflow.
 - One PR per repo per logical change. Conventional commit messages. Always commit with DCO signoff: `git commit -s`.
 - Never disable or delete a workflow just to make CI green. Fix it, or remove it only with justification in the PR description.
 - Never print, exfiltrate, or commit secrets/credentials.
@@ -59,9 +68,10 @@ Orchestrate only. The main loop never clones, edits, or watches CI — dispatch 
 3. Dispatch one subagent per repo, in parallel. Each subagent must:
    - Clone the repo into the `repositories/` dir above (or reuse the existing clone).
    - Audit `.github/workflows/*`; discover the real Velnor labels via the `gh api` calls above.
-   - Convert `runs-on` to Velnor labels on a branch; open a PR (subagents are always authorized to create and merge PRs).
-   - Watch checks, iterate until green, merge without admin override (`gh pr merge --squash` or `--auto --squash`).
-   - Return only a short report (≤10 lines): PR links, final status, blockers/follow-ups.
+   - Convert `runs-on` to Velnor labels on a branch; keep/add the GitHub-hosted dispatch escape hatch; open a PR (subagents are always authorized to create and merge PRs).
+   - Watch checks, iterate until green; trigger the fallback lane and iterate until it is green too — identical configuration on both fleets.
+   - Merge without admin override (`gh pr merge --squash` or `--auto --squash`).
+   - Return only a short report (≤10 lines): PR links, Velnor + fallback run links, final status, blockers/follow-ups.
 4. Re-run `scripts/audit.sh`; confirm the tracker rows flip. Commit and push.
 5. Repeat until all 36 repos satisfy both objectives.
 
@@ -76,7 +86,8 @@ Orchestrate only. The main loop never clones, edits, or watches CI — dispatch 
 ## Done criteria
 
 - `scripts/audit.sh` reports every repo: runner default `✅ VELNOR` (or justified `⬜ NO_CI`), main `✅ GREEN` on `velnor`, open PRs all green.
+- Every repo with CI: GitHub-hosted fallback lane green via dispatch, from identical workflow configuration (only `runs-on` differs).
 - `TRACKER.md` fully green and committed.
-- Final report: totals, every exception justified (e.g. `⬜ NO_CI` repos), fallback incidents, remaining follow-ups.
+- Final report: totals, every exception justified (e.g. `⬜ NO_CI` repos), fallback-lane run links per repo, fallback incidents, remaining follow-ups.
 
 First action: step 1 — run the baseline audit.
