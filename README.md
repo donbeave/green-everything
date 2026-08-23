@@ -29,5 +29,8 @@ Requires: `gh` (authenticated, access to all three orgs), `jq`.
 
 ## Start / resume
 
-- Start: paste contents of `START.md` (below its separator line) into `/goal`.
-- Resume: paste contents of `RESUME.md` into `/goal`.
+`START.md` and `RESUME.md` contain only the prompt text — nothing else. Paste the entire
+file contents into `/goal`:
+
+- Start: paste all of `START.md`.
+- Resume after interruption: paste all of `RESUME.md`.

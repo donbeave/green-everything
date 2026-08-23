@@ -1,9 +1,3 @@
-# RESUME — Goal Prompt for `/goal` (resume after interruption)
-
-Paste everything below the separator line into `/goal`.
-
----
-
 ## Resume goal: Velnor runner as default CI/CD everywhere, all CI green on Velnor
 
 This is a resumption of the goal fully defined in `START.md` (same directory). Read `START.md` first. All its hard rules still bind — especially: never merge with admin privileges, never bypass branch protection, Velnor is always the default runner, DCO signoff on commits.

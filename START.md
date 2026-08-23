@@ -1,9 +1,3 @@
-# START — Goal Prompt for `/goal`
-
-Paste everything below the separator line into `/goal`.
-
----
-
 ## Goal: Velnor runner as default CI/CD everywhere, all CI green on Velnor
 
 You are working from the control directory `goal/` (this directory). It contains:
