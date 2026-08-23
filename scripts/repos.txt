@@ -1,0 +1,44 @@
+# Target repositories (owner/repo, one per line)
+# Lines starting with # and blank lines are ignored by scripts/audit.sh
+
+# jackin-project
+jackin-project/jackin
+jackin-project/velnor-actions
+jackin-project/jackin-the-architect
+jackin-project/jackin-role-action
+jackin-project/jackin-sentinel
+jackin-project/jackin-agent-smith
+jackin-project/homebrew-tap
+jackin-project/jackin-dev
+jackin-project/jackin-github-terraform
+
+# ChainArgos
+ChainArgos/java-monorepo
+ChainArgos/velnor-actions
+ChainArgos/jackin-agent-brown
+ChainArgos/blockchain-nodes
+ChainArgos/github-terraform
+ChainArgos/cloudflare-tofu
+
+# tailrocks
+tailrocks/velnor-apt
+tailrocks/velnor
+tailrocks/tailrocks-skills
+tailrocks/velnor-actions
+tailrocks/velnor-actions-fixture
+tailrocks/holla
+tailrocks/homebrew-holla
+tailrocks/holla-apt
+tailrocks/termrock
+tailrocks/homebrew-tablerock
+tailrocks/tablerock
+tailrocks/homebrew-parallax
+tailrocks/homebrew-ruxel
+tailrocks/ruxel
+tailrocks/parallax
+tailrocks/tracing-request-level
+tailrocks/pg-bigdecimal
+tailrocks/schemalane
+tailrocks/parallax-telemetry-playground
+tailrocks/cloudflare-tofu
+tailrocks/github-terraform
