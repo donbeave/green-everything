@@ -95,9 +95,16 @@ Orchestrate only. The main loop never clones, edits, or watches CI — dispatch 
 - A global blocker above persists.
 - A repo requires weakening branch protection or deleting CI to go green and no fix exists.
 
-## Done criteria
+## Done criteria (user-stated 2026-08-25, priority order)
 
-- `scripts/audit.sh` reports every repo: runner default `✅ VELNOR` (or justified `⬜ NO_CI`), main `✅ GREEN` on `velnor`, open PRs all green.
-- Every repo with CI: GitHub-hosted fallback lane green via dispatch, from identical workflow configuration (only `runs-on` differs).
-- `TRACKER.md` fully green and committed.
-- Final report: totals, every exception justified (e.g. `⬜ NO_CI` repos), fallback-lane run links per repo, fallback incidents, remaining follow-ups.
+1. All listed repos use Velnor as default runner.
+2. All repos have lane-switch ability.
+3. All repos have the `lanes` choice: velnor (default), github, both.
+4. All repos have all PRs **merged** — EXCEPT `ChainArgos/java-monorepo`: the user has important work in one PR there and merges it manually as operator. Never auto-merge java-monorepo PRs.
+5. All repos green in their PRs.
+6. All repos green on main branch (GitHub Actions on Velnor green by default).
+7. All repos green on both lanes (`lanes=both` verification per repo).
+8. `TRACKER.md` fully green and committed.
+9. Final report: totals, every exception justified, fallback-lane run links per repo, fallback incidents, remaining follow-ups.
+
+**Sentry rule:** every merge to `tailrocks/velnor` must be verified deployed on the sentry server (`ssh sentry`) with fleet health checked (no failing CI jobs, everything running). Issues found are fixed first, verified, then the goal resumes.
