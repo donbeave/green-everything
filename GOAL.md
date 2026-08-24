@@ -104,7 +104,7 @@ Orchestrate only. The main loop never clones, edits, or watches CI — dispatch 
 5. All repos green in their PRs.
 6. All repos green on main branch (GitHub Actions on Velnor green by default).
 7. All repos green on both lanes (`lanes=both` verification per repo).
-8. `TRACKER.md` fully green and committed.
+8. Everything in `TRACKER.md` fully DONE (regenerate via `scripts/audit.sh`).
 9. Final report: totals, every exception justified, fallback-lane run links per repo, fallback incidents, remaining follow-ups.
 
 **Sentry rule:** every merge to `tailrocks/velnor` must be verified deployed on the sentry server (`ssh sentry`) with fleet health checked (no failing CI jobs, everything running). Issues found are fixed first, verified, then the goal resumes.
