@@ -285,10 +285,118 @@ velnor_evidence() {
   printf '%s' "$proven"
 }
 
+# --- Goal 2: workflow exemptions ----------------------------------------------
+# Extract the `on:` trigger event names of a workflow file (one per line).
+# Handles inline (`on: push` / `on: [a, b]`) and block (`on:\n  a:\n  b:`) forms.
+trigger_set() {
+  awk '
+    !inon && /^on:[[:space:]]*$/ { inon = 1; next }
+    !inon && /^on:[[:space:]]+/ {
+      line = $0; sub(/^on:[[:space:]]*/, "", line)
+      gsub(/[][]/, "", line); gsub(/,/, " ", line)
+      n = split(line, a, /[[:space:]]+/)
+      for (i = 1; i <= n; i++) if (a[i] != "") print a[i]
+      exit
+    }
+    inon && /^  [A-Za-z_-]+:/ { name = $1; sub(/:$/, "", name); print name; next }
+    inon && /^[^[:space:]]/ { exit }
+  '
+}
+
+# Callable class template: has workflow_call and no other trigger except
+# (optionally) workflow_dispatch. No push/pull_request/schedule ⇒
+# consumer-executed template (owner-repo dispatch fails by design: consumer
+# tasks are absent), not default-branch CI. Dispatch-only workflows are NOT
+# callable templates and stay evaluated.
+is_callable_set() {
+  local x n=0 bad=0 has_call=0
+  [[ -z "${1// }" ]] && return 1
+  local -a trigs
+  IFS=',' read -ra trigs <<<"$1"
+  for x in "${trigs[@]}"; do
+    x="$(trim "$x")"
+    [[ -z "$x" ]] && continue
+    n=$((n+1))
+    case "$x" in
+      workflow_call)      has_call=1 ;;
+      workflow_dispatch)  ;;
+      *)                  bad=1 ;;
+    esac
+  done
+  [[ $n -gt 0 && $bad -eq 0 && $has_call -eq 1 ]]
+}
+
+is_macos_label() { grep -qiE '^macos-' <<<"$(trim "$1")"; }
+
+# All matrix-axis values of `axis` must be macOS labels (static literals only;
+# fromJSON() axes are unresolvable ⇒ not macOS-confirmed, workflow evaluated).
+macos_axis_ok() {
+  local content="$1" axis="$2" line suffix v
+  line=$(printf '%s\n' "$content" | grep -E "(^|[[:space:]{,])${axis}:" | head -1)
+  [[ -z "$line" ]] && return 1
+  suffix="${line#*"${axis}":}"
+  [[ "$suffix" == *'${{'* || "$suffix" == *'fromJSON'* ]] && return 1
+  suffix=$(printf '%s' "$suffix" | tr -d '[]')
+  local IFS=,
+  for v in $suffix; do
+    is_macos_label "$(token_from_expr "$v")" || return 1
+  done
+  return 0
+}
+
+macos_token_ok() {
+  local tok="$1" content="$2" def
+  case "$tok" in
+    matrix.*)
+      local axis="${tok#matrix.}"; axis="${axis%%.*}"
+      macos_axis_ok "$content" "$axis" ;;
+    inputs.*)
+      def=$(printf '%s\n' "$content" | awk -v k="${tok#inputs.}" '
+        { l[NR]=$0 }
+        END {
+          for (i=1; i<=NR; i++)
+            if (l[i] ~ "^[[:space:]]*" k ":")
+              for (j=i+1; j<=i+10 && j<=NR; j++)
+                if (l[j] ~ /^[[:space:]]*default:/) {
+                  sub(/^[[:space:]]*default:[[:space:]]*/, "", l[j]); print l[j]; exit
+                }
+        }')
+      is_macos_label "$(token_from_expr "$def")" ;;
+    *)
+      is_macos_label "$tok" ;;
+  esac
+}
+
+# Every branch of every `||` chain in one runs-on value must land on macOS.
+macos_value_ok() {
+  local val="$1" content="$2" rest="$val" seg
+  while [[ "$rest" == *" || "* ]]; do
+    seg="${rest%% ||*}"
+    macos_token_ok "$(token_from_expr "$seg")" "$content" || return 1
+    rest="${rest#* || }"
+  done
+  macos_token_ok "$(token_from_expr "$rest")" "$content"
+}
+
+# macOS-only workflow: EVERY job's resolved runs-on is a GitHub macOS label on
+# every lane. Velnor fleet is Linux-only, so no velnor lane can exist. Mixed
+# workflows (any non-macOS job) fail this and stay fully evaluated.
+macos_only_file() {
+  local content="$1" val ok=1 seen=0
+  while IFS= read -r val; do
+    [[ -z "${val// }" ]] && continue
+    seen=1
+    macos_value_ok "$val" "$content" || { ok=0; break; }
+  done < <(printf '%s\n' "$content" | runs_on_values)
+  [[ $seen == 1 && $ok == 1 ]]
+}
+
 # --- Goal 2: main-branch CI status -------------------------------------------
-# echoes "STATUS|labels|failed-workflow-names"
+# echoes "STATUS|labels|failed-workflow-names|exemption-note"
 # STATUS: GREEN (all default-branch workflows green AND velnor proof at HEAD) /
 # NO_VELNOR_PROOF:names / RED / RUNNING / NO_RUNS.
+# Callable templates (workflow_call-only) are excluded from evaluation;
+# macOS-only workflows are excluded and noted as "🍎 MACOS-ONLY (names)".
 main_ci() {
   local repo="$1" branch="$2"
   local latest
@@ -296,11 +404,49 @@ main_ci() {
     --jq '[.workflow_runs[] | select(.event != "pull_request")]
           | group_by(.name)
           | map(sort_by(.created_at) | last | {id, name, status, conclusion})' 2>/dev/null)
-  if [[ -z "$latest" || "$latest" == "[]" ]]; then echo "NO_RUNS|-|-"; return; fi
+  if [[ -z "$latest" || "$latest" == "[]" ]]; then echo "NO_RUNS|-|-|"; return; fi
+
+  # Exemptions: resolve each run workflow's triggers + runner pinning from the
+  # file at the default branch. Callable templates are dropped entirely;
+  # macOS-only workflows are dropped but recorded for the cell note.
+  local wfs callable_names="" macos_names="" n path tset macos content
+  local -A wfmeta
+  wfs=$(gh api "repos/$repo/actions/workflows?per_page=100" \
+    --jq '.workflows[] | "\(.name)\t\(.path)"' 2>/dev/null)
+  while IFS= read -r n; do
+    [[ -z "$n" ]] && continue
+    path=$(printf '%s\n' "$wfs" | awk -F'\t' -v k="$n" '$1==k {print $2; exit}')
+    [[ -z "$path" ]] && continue   # unknown/deleted workflow file: keep evaluated
+    if [[ -n "${wfmeta[$path]+set}" ]]; then
+      IFS=$'\t' read -r tset macos <<<"${wfmeta[$path]}"
+    else
+      content=$(gh api "repos/$repo/contents/$path?ref=$branch" --jq '.content' 2>/dev/null | base64 -d 2>/dev/null)
+      tset=$(printf '%s\n' "$content" | trigger_set | paste -sd, -)
+      macos=0
+      if [[ -n "${content// }" ]] && macos_only_file "$content"; then macos=1; fi
+      wfmeta[$path]="$tset"$'\t'"$macos"
+    fi
+    if is_callable_set "$tset"; then callable_names+="$n"$'\n'
+    elif [[ $macos == 1 ]]; then macos_names+="$n"$'\n'
+    fi
+  done < <(jq -r '.[].name' <<<"$latest")
+
+  local macos_note=""
+  if [[ -n "$macos_names" ]]; then
+    macos_note="🍎 MACOS-ONLY ($(printf '%s' "$macos_names" | sed '/^$/d' | awk 'NR>1{printf ", "} {printf "%s", $0}'))"
+  fi
+
+  local latest_eval="$latest"
+  if [[ -n "$callable_names" || -n "$macos_names" ]]; then
+    local excluded
+    excluded=$(printf '%s%s' "$callable_names" "$macos_names" | sed '/^$/d' | jq -R . | jq -s .)
+    latest_eval=$(jq --argjson ex "$excluded" 'map(select(.name as $n | ($ex | index($n)) == null))' <<<"$latest")
+  fi
+  if [[ -z "$latest_eval" || "$latest_eval" == "[]" ]]; then echo "NO_RUNS|-|-|$macos_note"; return; fi
 
   local running failed st
-  running=$(jq -r '[.[] | select(.status != "completed")] | length' <<<"$latest")
-  failed=$(jq -r '[.[] | select(.status == "completed" and .conclusion != "success" and .conclusion != "skipped" and .conclusion != "neutral") | .name] | join(", ")' <<<"$latest")
+  running=$(jq -r '[.[] | select(.status != "completed")] | length' <<<"$latest_eval")
+  failed=$(jq -r '[.[] | select(.status == "completed" and .conclusion != "success" and .conclusion != "skipped" and .conclusion != "neutral") | .name] | join(", ")' <<<"$latest_eval")
   if   [[ "$running" -gt 0 ]]; then st=RUNNING
   elif [[ -n "$failed" ]];     then st=RED
   else st=GREEN; fi
@@ -333,12 +479,12 @@ main_ci() {
       while IFS= read -r n; do
         [[ -z "$n" ]] && continue
         grep -qxF -- "$n" <<<"$proven" || missing+="$n, "
-      done < <(jq -r '.[].name' <<<"$latest")
+      done < <(jq -r '.[].name' <<<"$latest_eval")
       missing="${missing%, }"
       [[ -n "$missing" ]] && st="NO_VELNOR_PROOF:$missing"
     fi
   fi
-  echo "$st|$labels|${failed:--}"
+  echo "$st|$labels|${failed:--}|$macos_note"
 }
 
 # --- Goal 2: open PR check status --------------------------------------------
@@ -402,7 +548,7 @@ for repo in "${repos[@]}"; do
   fi
 
   if [[ $MODE_CI == 1 ]]; then
-    IFS='|' read -r st lcell _failed <<<"$(main_ci "$repo" "$branch")"
+    IFS='|' read -r st lcell _failed macos_note <<<"$(main_ci "$repo" "$branch")"
     case "$st" in
       GREEN)             mcell="✅ GREEN" ;;
       NO_VELNOR_PROOF:*) mcell="🟡 NO_VELNOR_PROOF (${st#NO_VELNOR_PROOF:})" ;;
@@ -411,6 +557,7 @@ for repo in "${repos[@]}"; do
       NO_RUNS)           mcell="⬜ NO_RUNS" ;;
       *)                 mcell="⚠️ $st" ;;
     esac
+    [[ -n "${macos_note:-}" ]] && mcell="$mcell $macos_note"
     [[ "$lcell" == "-" && $LABELS == 0 ]] && lcell="(skipped)"
     pcell="$(pr_status "$repo")"
 
